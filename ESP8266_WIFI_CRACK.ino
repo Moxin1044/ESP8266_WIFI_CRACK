@@ -22,6 +22,9 @@ const char* passwords[] = {
   "88888888",
   "99999999",
   "00000000",
+  "0987654321",
+  "123456123456",
+  "1234567890.",
   "abc123123",
   "iloveyou",
   "87654321",
@@ -36,8 +39,17 @@ const char* passwords[] = {
   "159357258",
   "258369147",
   "qazwsxedc",
-  "qwerty123"
+  "qwerty123",
+  "66668888",
+  "88886666",
+  "1234abcd",
+  "abcd1234",
+  "11223344",
+  "111111111",
+  "11111111",
+  "87654321",
 };
+
 const int password_count = sizeof(passwords) / sizeof(passwords[0]);
 
 const int LED_PIN = 2; // 板载 LED（低电平点亮）
